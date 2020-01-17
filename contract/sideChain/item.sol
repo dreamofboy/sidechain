@@ -58,4 +58,7 @@ interface ItemAPI {
     function AddItemAttributes(uint64 worldID, uint64 itemTypeID, uint64 itemID, uint64[] calldata attrPermission, string[] calldata attrName, string[] calldata attrDes) external;
     function DelItemAttributes(uint64 worldID, uint64 itemTypeID, uint64 itemID, string[] calldata attrName) external;
     function ModifyItemAttributes(uint64 worldID, uint64 itemTypeID, uint64 itemID, uint64[] calldata attrPermission, string[] calldata attrName, string[] calldata attrDes) external;
+    function ItemApprove(string calldata to, uint64 worldID, uint64 itemTypeID, uint64 itemID, uint64 amount) external;
+    function TransferItemFrom(string calldata from, string calldata to, uint64 worldID, uint64 itemTypeID, uint64 itemID, uint64 amount) external;
+    function DestroyItemFrom(string calldata from, uint64 worldID, uint64 itemTypeID, uint64 itemID, uint64 amount) external;
 }

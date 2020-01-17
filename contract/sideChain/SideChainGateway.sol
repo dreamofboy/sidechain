@@ -27,19 +27,26 @@ contract SideChainGateway is ITRC20Receiver, ITRC721Receiver, Ownable {
 
     // onRecvxxx withdraw side->main
 
+    enum TronType {
+        SUCCESS, // 0
+        LOCKING, // 1
+        FAIL, // 2
+        REFUNDED        // 3
+    }
+
 
     event DeployDAppTRC20AndMapping(address mainChainAddress, address sideChainAddress, uint256 nonce);
     event DeployDAppTRC721AndMapping(address mainChainAddress, address sideChainAddress, uint256 nonce);
 
-    event DepositTRC10(string to, uint256 tokenId, uint256 value, uint64 value64, uint256 nonce);
-    event DepositTRC20(string to, address sideChainAddress, uint256 value, uint64 value64, uint256 nonce);
-    event DepositTRC721(string to, address sideChainAddress, uint256 uId, uint64 itemID, uint256 nonce);
-    event DepositTRX(string to, uint256 value, uint64 value64, uint256 nonce);
+    event DepositTRC10(string to, address sideChainAddress, uint256 value, uint64 sideValue, uint256 nonce);
+    event DepositTRC20(string to, address sideChainAddress, uint256 value, uint64 sideValue, uint256 nonce);
+    event DepositTRC721(string to, address sideChainAddress, uint256 UID, uint64 sideUID, uint256 nonce);
+    event DepositTRX(string to, address sideChainAddress, uint256 value, uint64 sideValue, uint256 nonce);
 
-    event WithdrawTRC10(address from, uint256 tokenId, uint256 value, uint256 nonce);
-    event WithdrawTRC20(address from, address mainChainAddress, uint256 value, uint256 nonce);
-    event WithdrawTRC721(address from, address mainChainAddress, uint256 uId, uint256 nonce);
-    event WithdrawTRX(address from, uint256 value, uint256 nonce);
+    event WithdrawTRC10(address to, uint256 tokenId, uint256 value, uint256 nonce);
+    event WithdrawTRC20(address to, address mainChainAddress, uint256 value, uint256 nonce);
+    event WithdrawTRC721(address to, address mainChainAddress, uint256 uId, uint256 nonce);
+    event WithdrawTRX(address to, uint256 value, uint256 nonce);
 
     event MultiSignForWithdrawTRC10(address from, uint256 tokenId, uint256 value, uint256 nonce);
     event MultiSignForWithdrawTRC20(address from, address mainChainAddress, uint256 value, uint256 nonce);
@@ -48,6 +55,7 @@ contract SideChainGateway is ITRC20Receiver, ITRC721Receiver, Ownable {
 
     uint64 public worldID;
     uint64 public trxItemID;
+    address public trxSideAddress;
     mapping(uint256 => address) trc10ToItemMap;
     mapping(uint64 => address) itemToTrc10Map;
 
@@ -132,12 +140,18 @@ contract SideChainGateway is ITRC20Receiver, ITRC721Receiver, Ownable {
         string[] memory attrName = new string[](0);
         string[] memory attrDes = new string[](0);
         trxItemID = item.IssueItemType(worldID, "trx", true, 0, "trx in here", attrPermission, attrName, attrDes);
+        trxSideAddress = AddressEncode(trxItemID, 6, DataModel.TokenKind.TRX);
     }
 
 
-    function v64(uint256 value)private pure returns(uint64) {
+    function v64(uint256 value, uint8 decimals)private pure returns(uint64) {
+        value /= uint256(10)**decimals;
         require(value < (1<<64)-1, "only uint64");
         return uint64(value);
+    }
+
+    function v256(uint64 value, uint8 decimals) private pure returns(uint256) {
+        return (uint256(10)**decimals) * value;
     }
 
     function getWithdrawSigns(uint256 nonce) view public returns (bytes[] memory, address[] memory) {
@@ -174,14 +188,16 @@ contract SideChainGateway is ITRC20Receiver, ITRC721Receiver, Ownable {
         }
     }
 
-    function ItemsToAddress(uint64 _worldID, uint64 itemID, uint8 decimals) private pure returns(address) {
-        return address((decimals<<65)|(_worldID<<64)|itemID);
+    function AddressEncode(uint64 itemID, uint8 decimals, DataModel.TokenKind kind) private view returns(address) {
+        return address((uint8(kind)<<66)|(decimals<<65)|(worldID<<64)|itemID);
     }
-    function AddressToItems(address addr) private pure returns(uint64 _worldID, uint64 itemID, uint8 decimals) {
+    function AddressDecode(address addr) private view returns(uint64 itemID, uint8 decimals, DataModel.TokenKind kind) {
         uint256 intaddr = uint256(addr);
-        _worldID = uint64(intaddr>>64);
+        uint64 _worldID = uint64(intaddr>>64);
+        require(worldID == _worldID, "wrong world ID");
         itemID = uint64(intaddr);
         decimals = uint8(intaddr>>65);
+        kind = DataModel.TokenKind(intaddr>>66);
     }
     function deployDAppTRC20AndMapping(address mainChainAddress, string memory name,
         string memory symbol, uint8 decimals, string memory contractOwner, uint256 nonce) internal
@@ -194,7 +210,7 @@ contract SideChainGateway is ITRC20Receiver, ITRC721Receiver, Ownable {
             string[] memory attrName = new string[](0);
             string[] memory attrDes = new string[](0);
             uint64 itemID = item.IssueItemType(worldID, name, true, 0, "trc20", attrPermission, attrName, attrDes);
-            sideChainAddress = ItemsToAddress(worldID, itemID, decimals);
+            sideChainAddress = AddressEncode(itemID, decimals, DataModel.TokenKind.TRC20);
         }
         mainToSideContractMap[mainChainAddress] = sideChainAddress;
         sideToMainContractMap[sideChainAddress] = mainChainAddress;
@@ -227,7 +243,7 @@ contract SideChainGateway is ITRC20Receiver, ITRC721Receiver, Ownable {
             string[] memory attrName = new string[](0);
             string[] memory attrDes = new string[](0);
             uint64 itemID = item.IssueItemType(worldID, name, false, 0, "trc721", attrPermission, attrName, attrDes);
-            sideChainAddress = ItemsToAddress(worldID, itemID, 0);
+            sideChainAddress = AddressEncode(itemID, 0, DataModel.TokenKind.TRC721);
         }
 
         mainToSideContractMap[mainChainAddress] = sideChainAddress;
@@ -268,21 +284,22 @@ contract SideChainGateway is ITRC20Receiver, ITRC721Receiver, Ownable {
         uint256 value, bytes32 name, bytes32 symbol, uint8 decimals, uint256 nonce) internal
     {
         uint64 itemID;
-        address addr = trc10ToItemMap[tokenId];
-        if( addr == address(0) ){
+        address sideAddress = trc10ToItemMap[tokenId];
+        if( sideAddress == address(0) ){
             uint64[] memory attrPermission = new uint64[](0);
             string[] memory attrName = new string[](0);
             string[] memory attrDes = new string[](0);
             itemID = item.IssueItemType(worldID, "trc10", true, 0, "trc10", attrPermission, attrName, attrDes);
-            trc10ToItemMap[tokenId] = ItemsToAddress(worldID, itemID, decimals);
-            itemToTrc10Map[itemID] = ItemsToAddress(worldID, uint64(tokenId), decimals);
+            sideAddress = AddressEncode(itemID, decimals, DataModel.TokenKind.TRC10);
+            trc10ToItemMap[tokenId] = sideAddress;
+            itemToTrc10Map[itemID] = AddressEncode(uint64(tokenId), decimals, DataModel.TokenKind.TRC10);
         }else {
-            uint64 _;
-            (_, itemID, decimals) = AddressToItems(addr);
+            DataModel.TokenKind __;
+            (itemID, decimals, __) = AddressDecode(sideAddress);
         }
-        uint64 value64 = v64(value/(uint256(10)**decimals));
+        uint64 value64 = v64(value, decimals);
         item.IncreaseItems(worldID, itemID, to, value64);
-        emit DepositTRC10(to, tokenId, value, value64, nonce);
+        emit DepositTRC10(to, sideAddress, value, value64, nonce);
     }
 
     // 4. depositTRC20
@@ -299,18 +316,18 @@ contract SideChainGateway is ITRC20Receiver, ITRC721Receiver, Ownable {
     }
 
     function depositTRC20(string memory to, address sideChainAddress, uint256 value, uint256 nonce) internal {
-        // todo
+        // doit
         /*
         IDApp(sideChainAddress).mint(to, value);
         */
 
         {
-            uint64 _worldID;
             uint64 itemID;
             uint8 decimals;
-            (_worldID, itemID, decimals) = AddressToItems(sideChainAddress);
-            uint64 value64 = v64(value/(uint256(10)**decimals));
-            item.IncreaseItems(_worldID, itemID, to, value64);
+            DataModel.TokenKind _;
+            (itemID, decimals, _) = AddressDecode(sideChainAddress);
+            uint64 value64 = v64(value, decimals);
+            item.IncreaseItems(worldID, itemID, to, value64);
             emit DepositTRC20(to, sideChainAddress, value, value64, nonce);
         }
     }
@@ -330,21 +347,21 @@ contract SideChainGateway is ITRC20Receiver, ITRC721Receiver, Ownable {
         // doit
 
         {
-            uint64 _worldID;
             uint64 itemID;
             uint8 decimals;
-            (_worldID, itemID, decimals) = AddressToItems(sideChainAddress);
+            DataModel.TokenKind _;
+            (itemID, decimals, _) = AddressDecode(sideChainAddress);
             uint64[] memory attrPermission = new uint64[](0);
             string[] memory attrName = new string[](0);
             string[] memory attrDes = new string[](0);
-            uint64 newUID = item.IncreaseItem(_worldID, itemID, to, "depositTRC721", attrPermission, attrName, attrDes);
-            side721ToMain721[sideChainAddress][itemID] = newUID;
-            main721ToSide721[sideChainAddress][newUID] = itemID;
+            uint64 newUID = item.IncreaseItem(worldID, itemID, to, "depositTRC721", attrPermission, attrName, attrDes);
+            side721ToMain721[sideChainAddress][itemID] = uId;
+            main721ToSide721[sideChainAddress][uId] = itemID;
 
         /*
         IDApp(sideChainAddress).mint(to, uId);
         */
-            emit DepositTRC721(to, sideChainAddress, uId, itemID, nonce);
+            emit DepositTRC721(to, sideChainAddress, uId, newUID, nonce);
         }
     }
 
@@ -357,9 +374,10 @@ contract SideChainGateway is ITRC20Receiver, ITRC721Receiver, Ownable {
     }
 
     function depositTRX(string memory to, uint256 value, uint256 nonce) internal {
-        uint64 value64 = v64(value/1e6);
+        uint64 value64 = v64(value, 6);
         item.IncreaseItems(worldID, trxItemID, to, value64);
-        emit DepositTRX(to, value, value64, nonce);
+        address sideAddress = AddressEncode(trxItemID, 6, DataModel.TokenKind.TRX);
+        emit DepositTRX(to, sideAddress, value, value64, nonce);
     }
 
     function multiSignForDeposit(uint256 nonce) internal returns (bool) {
@@ -414,6 +432,45 @@ contract SideChainGateway is ITRC20Receiver, ITRC721Receiver, Ownable {
         }
     }
 
+
+ //   event WithdrawTRC10(address to, uint256 tokenId, uint256 value, uint256 nonce);
+  //  event WithdrawTRC20(address to, address mainChainAddress, uint256 value, uint256 nonce);
+    function ItemsWithdraw(address sideAddress, address to, uint64 valueOrID, uint256 nonce) public {
+        require(sideAddress != address(0), "invalid sideAddress");
+        uint64 itemID;
+        uint8 decimals;
+        DataModel.TokenKind kind;
+        (itemID, decimals, kind) = AddressDecode(sideAddress);
+        string memory sender = account.AddressToString(msg.sender);
+        if (kind == DataModel.TokenKind.TRX) {
+            // withdraw trx
+            item.DestroyItemFrom(sender, worldID, itemID, 0, valueOrID);
+            emit WithdrawTRX(to, v256(valueOrID, 6), nonce);
+            return;
+        }
+        if (kind == DataModel.TokenKind.TRC10) {
+            item.DestroyItemFrom(sender, worldID, itemID, 0, valueOrID);
+            address tokenEncode = itemToTrc10Map[itemID];
+            uint64 tokenID;
+            (tokenID, decimals, kind) = AddressDecode(tokenEncode);
+            emit WithdrawTRC10(to, uint256(tokenID), v256(valueOrID, decimals), nonce);
+            return;
+        }
+        if (kind == DataModel.TokenKind.TRC20) {
+            address mainChainAddress = sideToMainContractMap[sideAddress];
+            item.DestroyItemFrom(sender, worldID, itemID, 0, valueOrID);
+            emit WithdrawTRC20(to, mainChainAddress, v256(valueOrID, decimals), nonce);
+            return;
+        }
+        if (kind == DataModel.TokenKind.TRC721) {
+            address mainChainAddress = sideToMainContractMap[sideAddress];
+            item.DestroyItemFrom(sender, worldID, itemID, valueOrID, 0);
+            uint256 newUID = side721ToMain721[sideAddress][valueOrID];
+            emit WithdrawTRC721(to, mainChainAddress, newUID, nonce);
+            return;
+        }
+        revert("wrong params");
+    }
     // 8. withdrawTRC20
     function onTRC20Received(address from, uint256 value) payable
     public goDelegateCall onlyNotPause onlyNotStop returns (uint256 r) {
@@ -607,7 +664,7 @@ contract SideChainGateway is ITRC20Receiver, ITRC721Receiver, Ownable {
         return false;
     }
 
-    function countSuccess(bytes32 ret) internal returns (uint256 count) {
+    function countSuccess(bytes32 ret) internal pure returns (uint256 count) {
         uint256 _num = uint256(ret);
         for (; _num > 0; ++count) {_num &= (_num - 1);}
         return count;
