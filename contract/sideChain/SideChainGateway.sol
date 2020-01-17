@@ -5,9 +5,14 @@ import "./ITRC721Receiver.sol";
 import "./ECVerify.sol";
 import "./DataModel.sol";
 import "./Ownable.sol";
+import "./item.sol";
+import "./account.sol";
 
 contract SideChainGateway is ITRC20Receiver, ITRC721Receiver, Ownable {
     using ECVerify for bytes32;
+
+    AccountAPI account = AccountAPI(address(bytes20("fractalaccount")));
+    ItemAPI constant item = ItemAPI(address(bytes20("fractalitem")));
 
     // 1. deployDAppTRC20AndMapping
     // 2. deployDAppTRC721AndMapping
@@ -20,14 +25,16 @@ contract SideChainGateway is ITRC20Receiver, ITRC721Receiver, Ownable {
     // 9. withdrawTRC721
     // 10. withdrawTRX
 
+    // onRecvxxx withdraw side->main
+
 
     event DeployDAppTRC20AndMapping(address mainChainAddress, address sideChainAddress, uint256 nonce);
     event DeployDAppTRC721AndMapping(address mainChainAddress, address sideChainAddress, uint256 nonce);
 
-    event DepositTRC10(address to, uint256 tokenId, uint256 value, uint256 nonce);
-    event DepositTRC20(address to, address sideChainAddress, uint256 value, uint256 nonce);
-    event DepositTRC721(address to, address sideChainAddress, uint256 uId, uint256 nonce);
-    event DepositTRX(address to, uint256 value, uint256 nonce);
+    event DepositTRC10(string to, uint256 tokenId, uint256 value, uint64 value64, uint256 nonce);
+    event DepositTRC20(string to, address sideChainAddress, uint256 value, uint64 value64, uint256 nonce);
+    event DepositTRC721(string to, address sideChainAddress, uint256 uId, uint64 itemID, uint256 nonce);
+    event DepositTRX(string to, uint256 value, uint64 value64, uint256 nonce);
 
     event WithdrawTRC10(address from, uint256 tokenId, uint256 value, uint256 nonce);
     event WithdrawTRC20(address from, address mainChainAddress, uint256 value, uint256 nonce);
@@ -38,6 +45,11 @@ contract SideChainGateway is ITRC20Receiver, ITRC721Receiver, Ownable {
     event MultiSignForWithdrawTRC20(address from, address mainChainAddress, uint256 value, uint256 nonce);
     event MultiSignForWithdrawTRC721(address from, address mainChainAddress, uint256 uId, uint256 nonce);
     event MultiSignForWithdrawTRX(address from, uint256 value, uint256 nonce);
+
+    uint64 public worldID;
+    uint64 public trxItemID;
+    mapping(uint256 => address) trc10ToItemMap;
+    mapping(uint64 => address) itemToTrc10Map;
 
     uint256 public numOracles;
     address public sunTokenAddress;
@@ -54,6 +66,8 @@ contract SideChainGateway is ITRC20Receiver, ITRC721Receiver, Ownable {
 
     mapping(address => address) public mainToSideContractMap;
     mapping(address => address) public sideToMainContractMap;
+    mapping(address => mapping(uint64 => uint256)) public side721ToMain721;
+    mapping(address => mapping(uint256 => uint64)) public main721ToSide721;
     address[] public mainContractList;
     mapping(uint256 => bool) public tokenIdMap;
     mapping(address => bool) public oracles;
@@ -111,6 +125,21 @@ contract SideChainGateway is ITRC20Receiver, ITRC721Receiver, Ownable {
         _;
     }
 
+    constructor() Ownable() public {
+        worldID = item.IssueWorld(account.AddressToString(address(this)), "tronsidechan", "tron sidechain");
+
+        uint64[] memory attrPermission = new uint64[](0);
+        string[] memory attrName = new string[](0);
+        string[] memory attrDes = new string[](0);
+        trxItemID = item.IssueItemType(worldID, "trx", true, 0, "trx in here", attrPermission, attrName, attrDes);
+    }
+
+
+    function v64(uint256 value)private pure returns(uint64) {
+        require(value < (1<<64)-1, "only uint64");
+        return uint64(value);
+    }
+
     function getWithdrawSigns(uint256 nonce) view public returns (bytes[] memory, address[] memory) {
         return (withdrawSigns[nonce].signs, withdrawSigns[nonce].signOracles);
     }
@@ -135,19 +164,7 @@ contract SideChainGateway is ITRC20Receiver, ITRC721Receiver, Ownable {
 
     // 1. deployDAppTRC20AndMapping
     function multiSignForDeployDAppTRC20AndMapping(address mainChainAddress, string memory name,
-        string memory symbol, uint8 decimals, uint256 nonce)
-    public goDelegateCall onlyNotStop onlyOracle
-    {
-        require(mainChainAddress != sunTokenAddress, "mainChainAddress == sunTokenAddress");
-        bool needMapping = multiSignForMapping(nonce);
-        if (needMapping) {
-            deployDAppTRC20AndMapping(mainChainAddress, name, symbol, decimals, nonce);
-        }
-    }
-
-    // 1. deployDAppTRC20AndMapping
-    function multiSignForDeployDAppTRC20AndMapping(address mainChainAddress, string memory name,
-        string memory symbol, uint8 decimals, address contractOwner, uint256 nonce)
+        string memory symbol, uint8 decimals, string memory contractOwner, uint256 nonce)
     public goDelegateCall onlyNotStop onlyOracle
     {
         require(mainChainAddress != sunTokenAddress, "mainChainAddress == sunTokenAddress");
@@ -157,49 +174,37 @@ contract SideChainGateway is ITRC20Receiver, ITRC721Receiver, Ownable {
         }
     }
 
-    function deployDAppTRC20AndMapping(address mainChainAddress, string memory name,
-        string memory symbol, uint8 decimals, uint256 nonce) internal
-    {
-        // todo
-        /*
-        require(mainToSideContractMap[mainChainAddress] == address(0), "TRC20 contract is mapped");
-        address sideChainAddress = address(new DAppTRC20(address(this), name, symbol, decimals));
-        mainToSideContractMap[mainChainAddress] = sideChainAddress;
-        sideToMainContractMap[sideChainAddress] = mainChainAddress;
-        emit DeployDAppTRC20AndMapping(mainChainAddress, sideChainAddress, nonce);
-        mainContractList.push(mainChainAddress);
-        */
+    function ItemsToAddress(uint64 _worldID, uint64 itemID, uint8 decimals) private pure returns(address) {
+        return address((decimals<<65)|(_worldID<<64)|itemID);
     }
-
-    function deployDAppTRC20AndMapping(address mainChainAddress, string memory name,
-        string memory symbol, uint8 decimals, address contractOwner, uint256 nonce) internal
-    {
-        // todo
-        /*
-        require(mainToSideContractMap[mainChainAddress] == address(0), "TRC20 contract is mapped");
-        address sideChainAddress = address(new DAppTRC20(address(this), name, symbol, decimals));
-        address(0x10002).call(abi.encode(sideChainAddress, contractOwner));
-        mainToSideContractMap[mainChainAddress] = sideChainAddress;
-        sideToMainContractMap[sideChainAddress] = mainChainAddress;
-        emit DeployDAppTRC20AndMapping(mainChainAddress, sideChainAddress, nonce);
-        mainContractList.push(mainChainAddress);
-        */
+    function AddressToItems(address addr) private pure returns(uint64 _worldID, uint64 itemID, uint8 decimals) {
+        uint256 intaddr = uint256(addr);
+        _worldID = uint64(intaddr>>64);
+        itemID = uint64(intaddr);
+        decimals = uint8(intaddr>>65);
     }
-    // 2. deployDAppTRC721AndMapping
-    function multiSignForDeployDAppTRC721AndMapping(address mainChainAddress, string memory name,
-        string memory symbol, uint256 nonce)
-    public goDelegateCall onlyNotStop onlyOracle
+    function deployDAppTRC20AndMapping(address mainChainAddress, string memory name,
+        string memory symbol, uint8 decimals, string memory contractOwner, uint256 nonce) internal
     {
-        require(mainChainAddress != sunTokenAddress, "mainChainAddress == sunTokenAddress");
-        bool needMapping = multiSignForMapping(nonce);
-        if (needMapping) {
-            deployDAppTRC721AndMapping(mainChainAddress, name, symbol, nonce);
+        // doit
+        require(mainToSideContractMap[mainChainAddress] == address(0), "TRC20 contract is mapped");
+        address sideChainAddress;
+        {
+            uint64[] memory attrPermission = new uint64[](0);
+            string[] memory attrName = new string[](0);
+            string[] memory attrDes = new string[](0);
+            uint64 itemID = item.IssueItemType(worldID, name, true, 0, "trc20", attrPermission, attrName, attrDes);
+            sideChainAddress = ItemsToAddress(worldID, itemID, decimals);
         }
+        mainToSideContractMap[mainChainAddress] = sideChainAddress;
+        sideToMainContractMap[sideChainAddress] = mainChainAddress;
+        emit DeployDAppTRC20AndMapping(mainChainAddress, sideChainAddress, nonce);
+        mainContractList.push(mainChainAddress);
     }
 
     // 2. deployDAppTRC721AndMapping
     function multiSignForDeployDAppTRC721AndMapping(address mainChainAddress, string memory name,
-        string memory symbol, address contractOwner, uint256 nonce)
+        string memory symbol, string memory contractOwner, uint256 nonce)
     public goDelegateCall onlyNotStop onlyOracle
     {
         require(mainChainAddress != sunTokenAddress, "mainChainAddress == sunTokenAddress");
@@ -210,32 +215,26 @@ contract SideChainGateway is ITRC20Receiver, ITRC721Receiver, Ownable {
     }
 
     function deployDAppTRC721AndMapping(address mainChainAddress, string memory name,
-        string memory symbol, uint256 nonce) internal
+        string memory symbol, string memory contractOwner, uint256 nonce) internal
     {
-        // todo
-        /*
+        // doit
+        
         require(mainToSideContractMap[mainChainAddress] == address(0), "TRC721 contract is mapped");
-        address sideChainAddress = address(new DAppTRC721(address(this), name, symbol));
-        mainToSideContractMap[mainChainAddress] = sideChainAddress;
-        sideToMainContractMap[sideChainAddress] = mainChainAddress;
-        emit DeployDAppTRC721AndMapping(mainChainAddress, sideChainAddress, nonce);
-        mainContractList.push(mainChainAddress);
-        */
-    }
 
-    function deployDAppTRC721AndMapping(address mainChainAddress, string memory name,
-        string memory symbol, address contractOwner, uint256 nonce) internal
-    {
-        // todo
-        /*
-        require(mainToSideContractMap[mainChainAddress] == address(0), "TRC721 contract is mapped");
-        address sideChainAddress = address(new DAppTRC721(address(this), name, symbol));
-        address(0x10002).call(abi.encode(sideChainAddress, contractOwner));
+        address sideChainAddress;
+        {
+            uint64 _worldID = item.IssueWorld(contractOwner, name, "mapping Trc721");
+            uint64[] memory attrPermission = new uint64[](0);
+            string[] memory attrName = new string[](0);
+            string[] memory attrDes = new string[](0);
+            sideChainAddress = ItemsToAddress(_worldID, 0, 0);
+        }
+
         mainToSideContractMap[mainChainAddress] = sideChainAddress;
         sideToMainContractMap[sideChainAddress] = mainChainAddress;
         emit DeployDAppTRC721AndMapping(mainChainAddress, sideChainAddress, nonce);
         mainContractList.push(mainChainAddress);
-        */
+        
     }
 
     function multiSignForMapping(uint256 nonce) internal returns (bool) {
@@ -254,7 +253,7 @@ contract SideChainGateway is ITRC20Receiver, ITRC721Receiver, Ownable {
     }
 
     // 3. depositTRC10
-    function multiSignForDepositTRC10(address payable to, uint256 tokenId,
+    function multiSignForDepositTRC10(string memory to, uint256 tokenId,
         uint256 value, bytes32 name, bytes32 symbol, uint8 decimals, uint256 nonce)
     public goDelegateCall onlyNotStop onlyOracle
     {
@@ -265,23 +264,29 @@ contract SideChainGateway is ITRC20Receiver, ITRC721Receiver, Ownable {
         }
     }
 
-    function depositTRC10(address payable to, uint256 _tokenId,
+    function depositTRC10(string memory to, uint256 tokenId,
         uint256 value, bytes32 name, bytes32 symbol, uint8 decimals, uint256 nonce) internal
     {
-        // todo
-        /*
-        uint256 tokenId = uint256(_tokenId);
-        if (tokenIdMap[tokenId] == false) {
-            tokenIdMap[tokenId] = true;
+        uint64 itemID;
+        address addr = trc10ToItemMap[tokenId];
+        if( addr == address(0) ){
+            uint64[] memory attrPermission = new uint64[](0);
+            string[] memory attrName = new string[](0);
+            string[] memory attrDes = new string[](0);
+            itemID = item.IssueItemType(worldID, "trc10", true, 0, "trc10", attrPermission, attrName, attrDes);
+            trc10ToItemMap[tokenId] = ItemsToAddress(worldID, itemID, decimals);
+            itemToTrc10Map[itemID] = ItemsToAddress(worldID, uint64(tokenId), decimals);
+        }else {
+            uint64 _;
+            (_, itemID, decimals) = AddressToItems(addr);
         }
-        mintTRC10Contract.call(abi.encode(value, tokenId, name, symbol, decimals));
-        to.transferToken(value, tokenId);
-        emit DepositTRC10(to, tokenId, value, nonce);
-        */
+        uint64 value64 = v64(value/(uint256(10)**decimals));
+        item.IncreaseItems(worldID, itemID, to, value64);
+        emit DepositTRC10(to, tokenId, value, value64, nonce);
     }
 
     // 4. depositTRC20
-    function multiSignForDepositTRC20(address to, address mainChainAddress,
+    function multiSignForDepositTRC20(string memory to, address mainChainAddress,
         uint256 value, uint256 nonce)
     public goDelegateCall onlyNotStop onlyOracle
     {
@@ -293,16 +298,25 @@ contract SideChainGateway is ITRC20Receiver, ITRC721Receiver, Ownable {
         }
     }
 
-    function depositTRC20(address to, address sideChainAddress, uint256 value, uint256 nonce) internal {
+    function depositTRC20(string memory to, address sideChainAddress, uint256 value, uint256 nonce) internal {
         // todo
         /*
         IDApp(sideChainAddress).mint(to, value);
-        emit DepositTRC20(to, sideChainAddress, value, nonce);
         */
+
+        {
+            uint64 _worldID;
+            uint64 itemID;
+            uint8 decimals;
+            (_worldID, itemID, decimals) = AddressToItems(sideChainAddress);
+            uint64 value64 = v64(value/(uint256(10)**decimals));
+            item.IncreaseItems(_worldID, itemID, to, value64);
+            emit DepositTRC20(to, sideChainAddress, value, value64, nonce);
+        }
     }
 
     // 5. depositTRC721
-    function multiSignForDepositTRC721(address to, address mainChainAddress, uint256 uId, uint256 nonce)
+    function multiSignForDepositTRC721(string memory to, address mainChainAddress, uint256 uId, uint256 nonce)
     public goDelegateCall onlyNotStop onlyOracle {
         address sideChainAddress = mainToSideContractMap[mainChainAddress];
         require(sideChainAddress != address(0), "the main chain address hasn't mapped");
@@ -312,29 +326,41 @@ contract SideChainGateway is ITRC20Receiver, ITRC721Receiver, Ownable {
         }
     }
 
-    function depositTRC721(address to, address sideChainAddress, uint256 uId, uint256 nonce) internal {
-        // todo
+    function depositTRC721(string memory to, address sideChainAddress, uint256 uId, uint256 nonce) internal {
+        // doit
+
+        {
+            uint64 _worldID;
+            uint64 itemID;
+            uint8 decimals;
+            (_worldID, itemID, decimals) = AddressToItems(sideChainAddress);
+            uint64[] memory attrPermission = new uint64[](0);
+            string[] memory attrName = new string[](0);
+            string[] memory attrDes = new string[](0);
+            itemID = item.IssueItemType(_worldID, "", false, 0, "trc721", attrPermission, attrName, attrDes);
+            side721ToMain721[sideChainAddress][itemID] = uId;
+            main721ToSide721[sideChainAddress][uId] = itemID;
+            item.IncreaseItem(_worldID, itemID, to, "", attrPermission, attrName, attrDes);
+
         /*
         IDApp(sideChainAddress).mint(to, uId);
-        emit DepositTRC721(to, sideChainAddress, uId, nonce);
         */
+            emit DepositTRC721(to, sideChainAddress, uId, itemID, nonce);
+        }
     }
 
     // 6. depositTRX
-    function multiSignForDepositTRX(address payable to, uint256 value, uint256 nonce) public goDelegateCall onlyNotStop onlyOracle {
+    function multiSignForDepositTRX(string memory to, uint256 value, uint256 nonce) public goDelegateCall onlyNotStop onlyOracle {
         bool needDeposit = multiSignForDeposit(nonce);
         if (needDeposit) {
             depositTRX(to, value, nonce);
         }
     }
 
-    function depositTRX(address payable to, uint256 value, uint256 nonce) internal {
-        // todo
-        /*
-        mintTRXContract.call(abi.encode(value));
-        to.transfer(value);
-        emit DepositTRX(to, value, nonce);
-        */
+    function depositTRX(string memory to, uint256 value, uint256 nonce) internal {
+        uint64 value64 = v64(value/1e6);
+        item.IncreaseItems(worldID, trxItemID, to, value64);
+        emit DepositTRX(to, value, value64, nonce);
     }
 
     function multiSignForDeposit(uint256 nonce) internal returns (bool) {
@@ -557,7 +583,15 @@ contract SideChainGateway is ITRC20Receiver, ITRC721Receiver, Ownable {
     }
 
     function batchvalidatesign(bytes32 dataHash, bytes[] storage signs, address[] storage oracle) internal returns(bytes32){
-        return bytes32(0);
+        uint256 bitmap = 0;
+        for(uint256 i = 0; i < signs.length; i++){
+            bytes memory sig = signs[i];
+            address signer = oracle[i];
+            if (account.ECVerify(signer, dataHash, sig)){
+                bitmap |= 1<<i;
+            }
+        }
+        return bytes32(bitmap);
     }
 
     function countSuccessSignForWithdraw(uint256 nonce, bytes32 dataHash) internal returns (bool) {
@@ -634,7 +668,8 @@ contract SideChainGateway is ITRC20Receiver, ITRC721Receiver, Ownable {
     }
 
     function setTokenOwner(address tokenAddress, address tokenOwner) external onlyOwner {
-        address(0x10002).call(abi.encode(tokenAddress, tokenOwner));
+        // todo
+        //address(0x10002).call(abi.encode(tokenAddress, tokenOwner));
     }
 
     function mainContractCount() view external returns (uint256) {
