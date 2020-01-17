@@ -47,7 +47,7 @@ interface ItemAPI {
     function IssueWorld(string calldata owner, string calldata name, string calldata description) external returns(uint64);
     function UpdateWorldOwner(string calldata owner, uint64 worldID) external;
     function IssueItemType(uint64 worldID, string calldata name, bool merge, uint64 upperLimit, string calldata description, uint64[] calldata attrPermission, string[] calldata attrName, string[] calldata attrDes) external returns(uint64);
-    function IncreaseItem(uint64 worldID, uint64 itemTypeID, string calldata owner, string calldata description, uint64[] calldata attrPermission, string[] calldata attrName, string[] calldata attrDes) external;
+    function IncreaseItem(uint64 worldID, uint64 itemTypeID, string calldata owner, string calldata description, uint64[] calldata attrPermission, string[] calldata attrName, string[] calldata attrDes) external returns(uint64);
     function DestroyItem(uint64 worldID, uint64 itemTypeID, uint64 itemID) external;
     function IncreaseItems(uint64 worldID, uint64 itemTypeID, string calldata to, uint64 amount) external;
     function DestroyItems(uint64 worldID, uint64 itemTypeID, uint64 amount) external;

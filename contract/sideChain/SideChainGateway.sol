@@ -223,11 +223,11 @@ contract SideChainGateway is ITRC20Receiver, ITRC721Receiver, Ownable {
 
         address sideChainAddress;
         {
-            uint64 _worldID = item.IssueWorld(contractOwner, name, "mapping Trc721");
             uint64[] memory attrPermission = new uint64[](0);
             string[] memory attrName = new string[](0);
             string[] memory attrDes = new string[](0);
-            sideChainAddress = ItemsToAddress(_worldID, 0, 0);
+            uint64 itemID = item.IssueItemType(worldID, name, false, 0, "trc721", attrPermission, attrName, attrDes);
+            sideChainAddress = ItemsToAddress(worldID, itemID, 0);
         }
 
         mainToSideContractMap[mainChainAddress] = sideChainAddress;
@@ -337,10 +337,9 @@ contract SideChainGateway is ITRC20Receiver, ITRC721Receiver, Ownable {
             uint64[] memory attrPermission = new uint64[](0);
             string[] memory attrName = new string[](0);
             string[] memory attrDes = new string[](0);
-            itemID = item.IssueItemType(_worldID, "", false, 0, "trc721", attrPermission, attrName, attrDes);
-            side721ToMain721[sideChainAddress][itemID] = uId;
-            main721ToSide721[sideChainAddress][uId] = itemID;
-            item.IncreaseItem(_worldID, itemID, to, "", attrPermission, attrName, attrDes);
+            uint64 newUID = item.IncreaseItem(_worldID, itemID, to, "depositTRC721", attrPermission, attrName, attrDes);
+            side721ToMain721[sideChainAddress][itemID] = newUID;
+            main721ToSide721[sideChainAddress][newUID] = itemID;
 
         /*
         IDApp(sideChainAddress).mint(to, uId);
