@@ -9,4 +9,5 @@ interface AccountAPI {
     function AddressToString(address name) external returns(string memory);
     function StringToAddress(string calldata name) external returns(address);
     function ECVerify(address name, bytes32 dataHash, bytes calldata sig) external returns(bool);
+    function IsExist(string calldata name) external returns(bool);
 }

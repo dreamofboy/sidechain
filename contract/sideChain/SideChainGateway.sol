@@ -8,6 +8,10 @@ import "./Ownable.sol";
 import "./item.sol";
 import "./account.sol";
 
+// issue:
+// 1. 侧链账户不存在如何办
+// 2. ItemID => WithdrawMsg
+
 contract SideChainGateway is ITRC20Receiver, ITRC721Receiver, Ownable {
     using ECVerify for bytes32;
 
@@ -267,7 +271,12 @@ contract SideChainGateway is ITRC20Receiver, ITRC721Receiver, Ownable {
         }
         return false;
     }
-
+    function accountCheck(string memory accountStr) private {
+        /*
+        if (!account.IsExist(account))
+            account.CreateAccount(account, "", "");
+        */
+    }
     // 3. depositTRC10
     function multiSignForDepositTRC10(string memory to, uint256 tokenId,
         uint256 value, bytes32 name, bytes32 symbol, uint8 decimals, uint256 nonce)
@@ -395,30 +404,6 @@ contract SideChainGateway is ITRC20Receiver, ITRC721Receiver, Ownable {
         return false;
     }
 
-    // 7. withdrawTRC10
-    function withdrawTRC10(uint256 tokenId, uint256 tokenValue) payable
-    public checkForTrc10(tokenId, tokenValue) goDelegateCall onlyNotPause onlyNotStop isHuman
-    returns (uint256 r)
-    {
-        // todo
-        /*
-        require(tokenIdMap[uint256(tokenId)], "tokenIdMap[tokenId] == false");
-        require(tokenValue >= withdrawMinTrc10, "tokenvalue must be >= withdrawMinTrc10");
-        require(msg.value >= withdrawFee, "value must be >= withdrawFee");
-        if (msg.value > withdrawFee) {
-            msg.sender.transfer(msg.value - withdrawFee);
-        }
-        if (msg.value > 0) {
-            bonus += withdrawFee;
-        }
-        userWithdrawList.push(WithdrawMsg(msg.sender, address(0), tokenId, tokenValue, DataModel.TokenKind.TRC10, DataModel.Status.SUCCESS));
-        // burn
-        address(0).transferToken(tokenValue, tokenId);
-        emit WithdrawTRC10(msg.sender, tokenId, tokenValue, userWithdrawList.length - 1);
-        r = userWithdrawList.length - 1;
-        */
-    }
-
     function multiSignForWithdrawTRC10(uint256 nonce, bytes memory oracleSign)
     public goDelegateCall onlyNotStop onlyOracle {
         if (!countMultiSignForWithdraw(nonce, oracleSign)) {
@@ -432,63 +417,47 @@ contract SideChainGateway is ITRC20Receiver, ITRC721Receiver, Ownable {
         }
     }
 
-
- //   event WithdrawTRC10(address to, uint256 tokenId, uint256 value, uint256 nonce);
-  //  event WithdrawTRC20(address to, address mainChainAddress, uint256 value, uint256 nonce);
-    function ItemsWithdraw(address sideAddress, address to, uint64 valueOrID, uint256 nonce) public {
+    function ItemsWithdraw(address sideAddress, address to, uint64 valueOrID) public  goDelegateCall onlyNotPause onlyNotStop returns(uint256 nonce) {
         require(sideAddress != address(0), "invalid sideAddress");
         uint64 itemID;
         uint8 decimals;
         DataModel.TokenKind kind;
         (itemID, decimals, kind) = AddressDecode(sideAddress);
         string memory sender = account.AddressToString(msg.sender);
+        uint256 mainValue = v256(valueOrID, decimals);
+        userWithdrawList.push(WithdrawMsg(msg.sender, to, 0, mainValue, kind, DataModel.Status.SUCCESS));
+        nonce = userWithdrawList.length - 1;
+        WithdrawMsg storage wmsg = userWithdrawList[nonce];
         if (kind == DataModel.TokenKind.TRX) {
             // withdraw trx
             item.DestroyItemFrom(sender, worldID, itemID, 0, valueOrID);
-            emit WithdrawTRX(to, v256(valueOrID, 6), nonce);
-            return;
+            emit WithdrawTRX(to, mainValue, nonce);
+            return nonce;
         }
         if (kind == DataModel.TokenKind.TRC10) {
             item.DestroyItemFrom(sender, worldID, itemID, 0, valueOrID);
             address tokenEncode = itemToTrc10Map[itemID];
             uint64 tokenID;
             (tokenID, decimals, kind) = AddressDecode(tokenEncode);
-            emit WithdrawTRC10(to, uint256(tokenID), v256(valueOrID, decimals), nonce);
-            return;
+            wmsg.tokenId = tokenID;
+            wmsg.valueOrUid = v256(valueOrID, decimals);
+            emit WithdrawTRC10(to, uint256(tokenID), mainValue, nonce);
+            return nonce;
         }
         if (kind == DataModel.TokenKind.TRC20) {
             address mainChainAddress = sideToMainContractMap[sideAddress];
             item.DestroyItemFrom(sender, worldID, itemID, 0, valueOrID);
-            emit WithdrawTRC20(to, mainChainAddress, v256(valueOrID, decimals), nonce);
-            return;
+            emit WithdrawTRC20(to, mainChainAddress, mainValue, nonce);
+            return nonce;
         }
         if (kind == DataModel.TokenKind.TRC721) {
             address mainChainAddress = sideToMainContractMap[sideAddress];
             item.DestroyItemFrom(sender, worldID, itemID, valueOrID, 0);
             uint256 newUID = side721ToMain721[sideAddress][valueOrID];
             emit WithdrawTRC721(to, mainChainAddress, newUID, nonce);
-            return;
+            return nonce;
         }
         revert("wrong params");
-    }
-    // 8. withdrawTRC20
-    function onTRC20Received(address from, uint256 value) payable
-    public goDelegateCall onlyNotPause onlyNotStop returns (uint256 r) {
-        // todo
-        /*
-        address mainChainAddress = sideToMainContractMap[msg.sender];
-        require(mainChainAddress != address(0), "mainChainAddress == address(0)");
-        require(value >= withdrawMinTrc20, "value must be >= withdrawMinTrc20");
-        if (msg.value > 0) {
-            bonus += msg.value;
-        }
-        userWithdrawList.push(WithdrawMsg(from, mainChainAddress, 0, value, DataModel.TokenKind.TRC20, DataModel.Status.SUCCESS));
-
-        // burn
-        DAppTRC20(msg.sender).burn(value);
-        emit WithdrawTRC20(from, mainChainAddress, value, userWithdrawList.length - 1);
-        r = userWithdrawList.length - 1;
-        */
     }
 
     function multiSignForWithdrawTRC20(uint256 nonce, bytes memory oracleSign)
@@ -504,26 +473,6 @@ contract SideChainGateway is ITRC20Receiver, ITRC721Receiver, Ownable {
         }
     }
 
-    // 9. withdrawTRC721
-    function onTRC721Received(address from, uint256 uId) payable
-    public goDelegateCall onlyNotPause onlyNotStop returns (uint256 r) {
-        // todo
-        /*
-        address mainChainAddress = sideToMainContractMap[msg.sender];
-        require(mainChainAddress != address(0), "mainChainAddress == address(0)");
-
-        if (msg.value > 0) {
-            bonus += msg.value;
-        }
-        userWithdrawList.push(WithdrawMsg(from, mainChainAddress, 0, uId, DataModel.TokenKind.TRC721, DataModel.Status.SUCCESS));
-
-        // burn
-        DAppTRC721(msg.sender).burn(uId);
-        emit WithdrawTRC721(from, mainChainAddress, uId, userWithdrawList.length - 1);
-        r = userWithdrawList.length - 1;
-        */
-    }
-
     function multiSignForWithdrawTRC721(uint256 nonce, bytes memory oracleSign)
     public goDelegateCall onlyNotStop onlyOracle {
         if (!countMultiSignForWithdraw(nonce, oracleSign)) {
@@ -535,20 +484,6 @@ contract SideChainGateway is ITRC20Receiver, ITRC721Receiver, Ownable {
         if (countSuccessSignForWithdraw(nonce, dataHash)) {
             emit MultiSignForWithdrawTRC721(withdrawMsg.user, withdrawMsg.mainChainAddress, withdrawMsg.valueOrUid, nonce);
         }
-    }
-
-    // 10. withdrawTRX
-    function withdrawTRX() payable public goDelegateCall onlyNotPause onlyNotStop isHuman returns (uint256 r) {
-        require(msg.value >= withdrawMinTrx + withdrawFee, "value must be >= withdrawMinTrx+withdrawFee");
-        if (msg.value > 0) {
-            bonus += withdrawFee;
-        }
-        uint256 withdrawValue = msg.value - withdrawFee;
-        userWithdrawList.push(WithdrawMsg(msg.sender, address(0), 0, withdrawValue, DataModel.TokenKind.TRX, DataModel.Status.SUCCESS));
-        // burn
-        address(0).transfer(withdrawValue);
-        emit WithdrawTRX(msg.sender, withdrawValue, userWithdrawList.length - 1);
-        r = userWithdrawList.length - 1;
     }
 
     function multiSignForWithdrawTRX(uint256 nonce, bytes memory oracleSign)
