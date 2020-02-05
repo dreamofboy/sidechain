@@ -189,7 +189,7 @@ contract SideChainGateway is ITRC20Receiver, ITRC721Receiver, Ownable {
     }
 
     function AddressEncode(uint64 itemID, uint8 decimals, DataModel.TokenKind kind) private view returns(address) {
-        return address((uint8(kind)<<66)|(decimals<<65)|(worldID<<64)|itemID);
+        return address((uint256(kind)<<66)|(uint256(decimals)<<65)|(uint256(worldID)<<64)|uint256(itemID));
     }
     function AddressDecode(address addr) private view returns(uint64 itemID, uint8 decimals, DataModel.TokenKind kind) {
         uint256 intaddr = uint256(addr);
