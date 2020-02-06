@@ -1,3 +1,4 @@
+pragma solidity ^0.5.7;
 import "./Delegatecallable.sol";
 /**
  * @title Ownable

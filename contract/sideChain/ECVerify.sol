@@ -1,3 +1,4 @@
+pragma solidity ^0.5.7;
 library ECVerify {
 
     function recover(bytes32 hash, bytes memory signature) internal pure returns (address) {

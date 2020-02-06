@@ -1,3 +1,4 @@
+pragma solidity ^0.5.7;
 contract DataModel {
     enum TokenKind {
         TRX, // 0
