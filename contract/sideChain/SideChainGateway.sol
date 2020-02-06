@@ -411,9 +411,11 @@ contract SideChainGateway is Ownable {
         }
     }
 
-    function ItemsWithdraw(address to, uint64 itemID, uint64 valueOrID) public  goDelegateCall onlyNotPause onlyNotStop returns(uint256 nonce) {
+    function ItemsWithdraw(address to, uint64 itemID, uint64 valueOrID) public payable goDelegateCall onlyNotPause onlyNotStop returns(uint256 nonce) {
         address mainAddress = sideToMainContractMap[itemEncode(itemID)];
         require(mainAddress != address(0), "invalid sideAddress");
+        require(msg.value >= withdrawFee, "msg.value must >= withdrawFee");
+        bonus += withdrawFee;
         MappingType storage sideType = mainToSideContractMap[mainAddress];
         string memory sender = account.AddressToString(msg.sender);
         uint256 mainValue = v256(valueOrID, sideType.decimals);
@@ -421,16 +423,19 @@ contract SideChainGateway is Ownable {
         nonce = userWithdrawList.length - 1;
         if (sideType._type == DataModel.TokenKind.TRX) {
             // withdraw trx
+            require(mainValue >= withdrawMinTrx, "withdraw must >= withdrawMinTrx");
             item.DestroyItemFrom(sender, worldID, sideType.itemID, 0, valueOrID);
             emit WithdrawTRX(to, mainValue, nonce);
             return nonce;
         }
         if (sideType._type == DataModel.TokenKind.TRC10) {
+            require(mainValue >= withdrawMinTrc10, "withdraw must >= withdrawMinTrc10");
             item.DestroyItemFrom(sender, worldID, sideType.itemID, 0, valueOrID);
             emit WithdrawTRC10(to, sideType.tokenID, mainValue, nonce);
             return nonce;
         }
         if (sideType._type == DataModel.TokenKind.TRC20) {
+            require(mainValue >= withdrawMinTrc20, "withdraw must >= withdrawMinTrc20");
             item.DestroyItemFrom(sender, worldID, sideType.itemID, 0, valueOrID);
             emit WithdrawTRC20(to, sideType.mainAddress, mainValue, nonce);
             return nonce;
